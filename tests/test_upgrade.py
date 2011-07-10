@@ -1,7 +1,8 @@
 import textwrap
-from test_pip import (here, reset_env, run_pip, assert_all_changes,
-                      write_file, _create_test_package,
-                      _change_test_package_version, pyversion)
+from os.path import join
+from tests.test_pip import (here, reset_env, run_pip, assert_all_changes,
+                            write_file, pyversion, _create_test_package,
+                            _change_test_package_version)
 
 
 def test_no_upgrade_unless_requested():
@@ -53,6 +54,7 @@ def test_uninstall_before_upgrade():
     result3 = run_pip('uninstall', 'initools', '-y', expect_error=True)
     assert_all_changes(result, result3, [env.venv/'build', 'cache'])
 
+
 def test_uninstall_before_upgrade_from_url():
     """
     Automatic uninstall-before-upgrade from URL.
@@ -65,6 +67,7 @@ def test_uninstall_before_upgrade_from_url():
     assert result2.files_created, 'upgrade to INITools 0.3 failed'
     result3 = run_pip('uninstall', 'initools', '-y', expect_error=True)
     assert_all_changes(result, result3, [env.venv/'build', 'cache'])
+
 
 def test_upgrade_to_same_version_from_url():
     """
@@ -79,6 +82,7 @@ def test_upgrade_to_same_version_from_url():
     assert not result2.files_updated, 'INITools 0.3 reinstalled same version'
     result3 = run_pip('uninstall', 'initools', '-y', expect_error=True)
     assert_all_changes(result, result3, [env.venv/'build', 'cache'])
+
 
 def test_upgrade_from_reqs_file():
     """
@@ -109,13 +113,12 @@ def test_uninstall_rollback():
 
     """
     env = reset_env()
-    find_links = 'file://' + here/'packages'
+    find_links = 'file://' + join(here, 'packages')
     result = run_pip('install', '-f', find_links, '--no-index', 'broken==0.1')
-    assert env.site_packages / 'broken.py' in result.files_created, result.files_created.keys()
+    assert env.site_packages / 'broken.py' in result.files_created, list(result.files_created.keys())
     result2 = run_pip('install', '-f', find_links, '--no-index', 'broken==0.2broken', expect_error=True)
     assert result2.returncode == 1, str(result2)
-    env.run('python', '-c', "import broken; print broken.VERSION").stdout
-    '0.1\n'
+    assert env.run('python', '-c', "import broken; print(broken.VERSION)").stdout == '0.1\n'
     assert_all_changes(result.files_after, result2, [env.venv/'build', 'pip-log.txt'])
 
 
@@ -134,6 +137,7 @@ def test_editable_git_upgrade():
     version2 = env.run('version_pkg')
     assert 'some different version' in version2.stdout
 
+
 def test_should_not_install_always_from_cache():
     """
     If there is an old cached package, pip should download the newer version
@@ -145,3 +149,15 @@ def test_should_not_install_always_from_cache():
     result = run_pip('install', 'INITools==0.1', expect_error=True)
     assert env.site_packages/'INITools-0.2-py%s.egg-info' % pyversion not in result.files_created
     assert env.site_packages/'INITools-0.1-py%s.egg-info' % pyversion in result.files_created
+
+
+def test_install_with_ignoreinstalled_requested():
+    """
+    It installs package if ignore installed is set.
+
+    """
+    env = reset_env()
+    run_pip('install', 'INITools==0.1', expect_error=True)
+    result = run_pip('install', '-I', 'INITools', expect_error=True)
+    assert result.files_created, 'pip install -I did not install'
+    assert env.site_packages/'INITools-0.1-py%s.egg-info' % pyversion not in result.files_created

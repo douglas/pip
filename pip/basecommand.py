@@ -1,6 +1,5 @@
 """Base Command class, and related routines"""
 
-from cStringIO import StringIO
 import os
 import socket
 import sys
@@ -12,8 +11,7 @@ from pip.log import logger
 from pip.baseparser import parser, ConfigOptionParser, UpdatingDefaultsHelpFormatter
 from pip.download import urlopen
 from pip.exceptions import BadCommand, InstallationError, UninstallationError
-from pip.venv import restart_in_venv
-from pip.backwardcompat import walk_packages
+from pip.backwardcompat import StringIO, walk_packages
 
 __all__ = ['command_dict', 'Command', 'load_all_commands',
            'load_command', 'command_names']
@@ -46,8 +44,8 @@ class Command(object):
 
     def merge_options(self, initial_options, options):
         # Make sure we have all global options carried over
-        for attr in ['log', 'venv', 'proxy', 'venv_base', 'require_venv',
-                     'respect_venv', 'log_explicit_levels', 'log_file',
+        for attr in ['log', 'proxy', 'require_venv',
+                     'log_explicit_levels', 'log_file',
                      'timeout', 'default_vcs', 'skip_requirements_regex',
                      'no_input']:
             setattr(options, attr, getattr(initial_options, attr) or getattr(options, attr))
@@ -74,44 +72,12 @@ class Command(object):
 
         self.setup_logging()
 
-        if options.require_venv and not options.venv:
+        if options.require_venv:
             # If a venv is required check if it can really be found
             if not os.environ.get('VIRTUAL_ENV'):
                 logger.fatal('Could not find an activated virtualenv (required).')
                 sys.exit(3)
-            # Automatically install in currently activated venv if required
-            options.respect_venv = True
 
-        if args and args[-1] == '___VENV_RESTART___':
-            ## FIXME: We don't do anything this this value yet:
-            args = args[:-2]
-            options.venv = None
-        else:
-            # If given the option to respect the activated environment
-            # check if no venv is given as a command line parameter
-            if options.respect_venv and os.environ.get('VIRTUAL_ENV'):
-                if options.venv and os.path.exists(options.venv):
-                    # Make sure command line venv and environmental are the same
-                    if (os.path.realpath(os.path.expanduser(options.venv)) !=
-                            os.path.realpath(os.environ.get('VIRTUAL_ENV'))):
-                        logger.fatal("Given virtualenv (%s) doesn't match "
-                                     "currently activated virtualenv (%s)."
-                                     % (options.venv, os.environ.get('VIRTUAL_ENV')))
-                        sys.exit(3)
-                else:
-                    options.venv = os.environ.get('VIRTUAL_ENV')
-                    logger.info('Using already activated environment %s' % options.venv)
-        if options.venv:
-            logger.info('Running in environment %s' % options.venv)
-            site_packages=False
-            if options.site_packages:
-                site_packages=True
-            restart_in_venv(options.venv, options.venv_base, site_packages,
-                            complete_args)
-            # restart_in_venv should actually never return, but for clarity...
-            return
-
-        ## FIXME: not sure if this sure come before or after venv restart
         if options.log:
             log_fp = open_logfile(options.log, 'a')
             logger.consumers.append((logger.DEBUG, log_fp))
@@ -125,12 +91,18 @@ class Command(object):
         exit = 0
         try:
             self.run(options, args)
-        except (InstallationError, UninstallationError), e:
+        except (InstallationError, UninstallationError):
+            e = sys.exc_info()[1]
             logger.fatal(str(e))
             logger.info('Exception information:\n%s' % format_exc())
             exit = 1
-        except BadCommand, e:
+        except BadCommand:
+            e = sys.exc_info()[1]
             logger.fatal(str(e))
+            logger.info('Exception information:\n%s' % format_exc())
+            exit = 1
+        except KeyboardInterrupt:
+            logger.fatal('Operation cancelled by user')
             logger.info('Exception information:\n%s' % format_exc())
             exit = 1
         except:
@@ -147,8 +119,6 @@ class Command(object):
             log_fp.write(text)
             log_fp.close()
         return exit
-
-
 
 
 def format_exc(exc_info=None):
@@ -174,8 +144,8 @@ def open_logfile(filename, mode='a'):
 
     log_fp = open(filename, mode)
     if exists:
-        print >> log_fp, '-'*60
-        print >> log_fp, '%s run on %s' % (sys.argv[0], time.strftime('%c'))
+        log_fp.write('%s\n' % ('-'*60))
+        log_fp.write('%s run on %s\n' % (sys.argv[0], time.strftime('%c')))
     return log_fp
 
 
